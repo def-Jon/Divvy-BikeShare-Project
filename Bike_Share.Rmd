@@ -1,0 +1,345 @@
+
+![ALT TEXT](/Users/MR JOHN/Documents/Data Analysis Projects/Divvybikes/cyclistic-csv/divvy.jpg)
+---
+title: "Strategies To Convert Casual Riders To Annual Members"
+author: "John Adeyanju"
+date: "2023-02-17"
+output: github_document
+keep_md: yes
+---
+## About Divvy Bikes
+
+Divvy is Chicagoland’s bike share system across Chicago and Evanston. Divvy provides residents and visitors with a convenient, fun and affordable transportation option for getting around and exploring Chicago.
+
+Divvy, like other bike share systems, consists of a fleet of specially-designed, sturdy and durable bikes that are locked into a network of docking stations throughout the region.read more [link](https://ride.divvybikes.com/about)
+
+### Statement of the business task
+
+The company's financial analyst wants to improve their earnings and has concluded that annual members are much more profitable than casual riders. Although the pricing flexibility helps Cyclistic attract more customers. Moreno, the director marketing believes that maximizing the number of annual members will be key to future growth. Rather than creating a marketing campaign that targets all-new customers, Moreno believes there is a very good chance to convert casual riders into members. She notes that casual riders are already aware of the Cyclistic program and have chosen Cyclistic for their mobility needs.
+
+
+### Objectives
+ 
+ To understand how casual riders and annual members use cyclistic bikes differently in order to design a new marketing strategy that will convert casual riders into annual members.
+
+## Data Preparation
+
+Divvy trip data is a public data that's made public by the company for public use, other data like riders personal identifiable information are excluded for `privacy`. The dataset is reliable, current and the data is constantly updated on the company data system.The data seems to be auto-generated from the company's infrastructure and hence unbiased.
+
+The data is made available by *Motivate International Inc.* under this
+[license](https://ride.divvybikes.com/data-license-agreement). 
+
+Further inquires into he company's website reveal the plan Divvy Bikes offers both *members* and *casual* riders. For single ride $3.30/trip (_One trip up to 3o mins_), annual membership $9/month (_Unlimited 45-min rides_)) [Pricing](https://ride.divvybikes.com/pricing) which will help in the process of this analysis. 
+
+*Dataset* are collected and stored monthly, so data is collated from December 2021 till November 2022 which makes it 12 months datasets, 
+
+### Setting up my R environment by loading the tidyverse package
+
+```{r load packages}
+library(tidyverse)  
+library(lubridate)  
+library(ggplot2) 
+library(janitor)
+library(dplyr)
+library(plotrix)
+library(readr)
+```
+
+#### Load the datasets.
+Load the 12 months datasets and combine them into a one dataset.
+
+
+```{r new_dataset}
+ #combine the 12 months datasets into a one dataset.
+rides_data<- list.files(path = "~/Data Analysis Projects/Divvybikes/cyclistic-csv", pattern = "*.csv",
+                        full.names = TRUE) %>%
+  lapply(read_csv) %>%
+  bind_rows
+```
+
+Having glanced through the dataset the naming convention is descriptive and consistent throughout the table.
+
+
+```{r}
+colnames(rides_data)
+```
+
+
+```{r total row and column no}
+ #Check the total number of rows and columns
+dim(rides_data)
+```
+
+### Data Cleaning
+
+Rename some columns for clarity
+
+```{r rename columns}
+rides_data<- rides_data%>%
+  rename(start_time = started_at,
+         end_time = ended_at,
+         bike_type = rideable_type,
+         user_type = member_casual
+         )
+```
+
+Extract the date,day, month, year and hour of each ride into a new column. This will allow us to aggregate ride data for each month, day, or year.#The default format is yyyy-mm-dd
+
+```{r date-time extraction}
+# Extract day, month and year
+rides_data$date <- as.Date(rides_data$start_time) #Convert start_time to date format
+rides_data$month <- format(as.Date(rides_data$date), "%b")
+rides_data$day <- format(as.Date(rides_data$date), "%d")
+rides_data$year <- format(as.Date(rides_data$date), "%Y")
+rides_data$day_of_week <- format(as.Date(rides_data$date), "%A")
+rides_data$hour<-format(as.POSIXct(rides_data$start_time),"%H")
+```
+
+
+```{r ride length}
+ #Calculate the time different between the start time and the end time of each trip as ride length
+rides_data<- rides_data%>%
+  mutate(ride_length = round(difftime(end_time, start_time, units = "mins"), digits = 1))
+```
+
+```{r}
+# Convert "ride_length" from Factor to numeric so we can run calculations on the data
+rides_data$ride_length <- as.numeric(as.character(rides_data$ride_length))
+```
+
+```{r}
+colnames(rides_data)
+```
+
+### Remove "bad" data
+
+ *Trips* that are below 60 seconds (1 minute) in length, they are potentially false starts or users trying to re-dock a bike to ensure it was secure and the entries when bikes were taken out of docks and checked for quality by Divvy or ride_length are negative.
+ 
+Also, remove rows where the data for start_station_name and end_station_name for some riders are missing to avoid error in our analysis.
+
+```{r}
+# create a new version of the dataframe (v2) since data is being removed
+
+rides_data_v2<- rides_data%>%
+  filter( !ride_length <1)%>%
+  na.omit(start_station_name, end_station_name)
+```
+
+```{r}
+# Notice that the days of the week and months are out of order. Let's fix that.
+
+rides_data_v2$day_of_week <- ordered(rides_data_v2$day_of_week, levels=c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+rides_data_v2$month <- ordered(rides_data_v2$month,levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+```
+
+Extract casual riders dataset to know which station the riders use the most.
+```{r}
+# Extract casual riders dataset.
+
+rides_data_casual<- rides_data_v2%>%
+  filter(user_type == "casual")
+```
+
+```{r}
+#export the dataset for further analysis.
+write.table(rides_data_casual, file = "rides_data_casual.csv", sep = ",", row.names = FALSE)
+```
+
+
+In order to see how user type use cyclist differently during different season of the year, create a column for the four seasons of the year.
+```{r v3}
+
+rides_data_v3<- rides_data_v2%>%
+  mutate(season = recode(month, 'Dec' = 'winter', 'Jan' = 'winter', 'Feb' = 'winter', 'Mar' = 'spring',
+                         'Apr' = 'spring', 'May' = 'spring', 'Jun' = 'summer', 'Jul' = 'summer', 
+                         'Aug' = 'summer','Sep' = 'autumn', 'Oct' = 'autumn', 'Nov' = 'autumn'))
+```
+
+
+```{r}
+#export the dataset for further analysis.
+write.table(rides_data_v3, file = "rides_data_v3.csv", sep = ",", row.names = FALSE)
+```
+
+```{r}
+head(rides_data_v3)
+```
+
+## DESCRIPTIVE ANALYSIS
+
+#### Compare members and casual users (ride_length in mins)
+```{r}
+rides_data_v3%>%
+  group_by(user_type)%>%
+  summarize(ride_length_min = min(ride_length), 
+            ride_length_mean = mean(ride_length),
+            ride_length_max = max(ride_length))
+```
+  
+#### Display the annual members and casual mean ride length for days of the week.
+
+```{r}
+aggregate(rides_data_v3$ride_length ~ rides_data_v3$user_type + rides_data_v3$day_of_week, FUN = mean)
+
+```
+
+
+
+## Analysis
+```{r}
+dim(rides_data_v3)
+```
+
+```{r}
+# Check the number of rides per user type 
+rides_data_v3 %>%
+  group_by(user_type)%>%
+  summarise(Count_of_ride = length(ride_id))
+```
+
+
+```{r Chart 0.1}
+#Create a data to show how the number of rides per user type
+
+x<- c(1745576, 2590133)
+user_type<- c("casual", "member")
+
+# Plot the chart with title and rainbow color pallet.
+piepercent<- paste(round(x/1000000, 2),"M")
+
+pie3D(x,radius=0.9,labels=piepercent,explode=0.1,theta= 0.8, main= "Riders population distribution",
+  col=c("skyblue","#7d7d7d"), border = "white")
+
+
+legend("topleft", c("Casual","Member"), cex = 0.8,
+   fill = c("skyblue", "#7d7d7d"))
+```
+
+#### visualization of days of the week ride count for each rider type
+
+```{r chart 0.2}
+rides_data_v3 %>% 
+  group_by(user_type, day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(user_type, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = number_of_rides, fill = user_type)) +
+  geom_col(position = "dodge") + theme(panel.background = element_rect(fill = "white")) + 
+  scale_fill_manual(values = c("skyblue","#7d7d7d")) + 
+  labs (title = "Days of the week ride count", x = "Days of the week", y = " Number of rides") +
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+*Key Observation*
+
+* Members ride more on weekdays more than casual riders which mean most members are working class and,  
+* Casual riders rides more on weekends, that shows casual riders probably use the cyclist for pleasure.
+
+#### visualization of days of the week average ride duration for each rider type 
+
+```{r chart 0.3}
+rides_data_v3%>%
+  group_by(user_type, day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(user_type, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = average_duration, fill = user_type)) +
+  geom_col(position = "dodge") + theme(panel.background = element_rect(fill = "white")) + 
+  scale_fill_manual(values = c("skyblue","#7d7d7d")) + 
+  labs (title = "Days of the week average ride duration ", x = "Days of the week", y = "Average ride length ") +
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+*Key Observation*
+
+* Annual members spent less time on rides.
+* Casual riders spent more time on rides all through the week.
+
+
+#### Visualization of months of the year ride count for the user types.
+```{r chart 0.4}
+rides_data_v3%>%
+  group_by(user_type, month, season) %>% 
+  summarise(number_of_rides = n(),
+            average_rides = mean(number_of_rides))%>% 
+  arrange(user_type, month, season)%>% 
+  ggplot(aes(x = month, y= number_of_rides, fill = user_type)) +
+  geom_col(position = "dodge") + 
+  theme(panel.background = element_rect(fill = "white")) + 
+  scale_fill_manual(values = c("skyblue","#7d7d7d")) + 
+  labs (title = "Months of the year ride count", subtitle = "Dec, 2021 - Nov, 2022", x= "Months of the year", y = "Number of rides ") +
+  theme(axis.text.x = element_text(angle = 45)) 
+```
+
+*Key Observation*
+
+* There was a rapid increase in the number of rides from May for both user types and it get to its peak in July for Casual and August for members. 
+* Both casual and member have their highest months of rides from May to September.
+* Decline in the number of rides for both user type from September.
+
+#### Visualization of ride count for different seasons of the year.
+
+```{r chart 0.5}
+rides_data_v3%>%
+  group_by(user_type, month, season) %>% 
+  summarise(number_of_rides = n())%>% 
+  arrange(user_type, month, season)%>% 
+  ggplot(aes(x = month, y= number_of_rides, fill = user_type)) +
+  geom_col(position = "dodge") + theme(panel.background = element_rect(fill = "white")) + 
+  facet_wrap(~season) +
+  scale_fill_manual(values = c("skyblue","#7d7d7d")) + 
+  labs (title = "Seasonal ride count ", subtitle ="Dec, 2021 - Nov, 2022", x = "Months of the year", y = "Number of rides") +
+  theme(axis.text.x = element_text(angle = 45)) 
+```
+ 
+ *Key Observation*
+ 
+* Winter has less ride count
+* Ride count gain momentum toward the end of the season.
+* The ride count was in its highest during summer seas0n
+* There was a sharp decline in the ride count from the beginning of autumn downward.
+
+
+#### Most used stations by both riders and only casual riders
+
+![RIDERS](/Users/MR JOHN/Documents/Data Analysis Projects/Divvybikes/cyclistic-csv/riders chart.png){width=50%}![CASUAL](/Users/MR JOHN/Documents/Data Analysis Projects/Divvybikes/cyclistic-csv/casual chart.png){width=50%}
+
+*Key Observation*
+
+* Streeter and Grand ave. and DuSablelake share DR & Munroe st are the most used station by both member
+
+
+### Conclusion
+
+The analysis used different metrics to discover users behavior and and below are the conclusion based on the metrics used.
+
+* [Week ride count](#### visualization of days of the week ride count for each rider type) shows that members use cyclist frequently on weekdays and less on weekends while casual riders major rides are on weekends and averagely on weekdays
+
+* [Week average ride duration](#### Display the annual members and casual average ride duration for days of the week) statistical table shows the average ride duration in a week. The lowest duration for members is _11.9 mins_ and _21.1 mins_ for casual riders, and the highest mean duration for members is _14.2 mins_ and _27.8 mins_ for casual riders which still validate what [average duration chart](#### visualization of days of the week average ride duration for each rider type ) displayed. Annual members spent less time while members spend longer time on rides.
+
+* [Seasonal ride count ](#### Visualization of ride count for different seasons of the year.) chart tells us how the riders behave during each season of the year.
+
+* Geographically, These [Stations](#### Most used stations by both riders and only casual riders ) have huge number of riders which clearly point us to where both the members and casual riders are domiciled.
+
+
+
+### Recommedations
+
+1. Casual riders tend to take longer rides than annual members, we can leverage on this to create a promotion that includes their ride expense. User friendly ad can be added to the company's users App.
+
+2. Geographically, non members riders (*Casual*) are clustered in few start stations, digital billboard can be used at these stations to reach out to the casual riders with a follow up email ad.
+
+3. Summer season stands the best season to convert more casual riders for membership as it has been shown in the analysis, there was high number of casual rides in *summer season* due to favorable weather. During this season, an outdoor event like _Charity rides_ can be created on a _weekend_ seeing from the analysis that casual riders ride mostly on weekends. 
+
+#### Limitation
+
+There are few limitations with the data
+* The amount each riders spent on each rides is missing likewise their gender
+* The age group of casual riders is missing which would have helped to better understand *Why* they behave the way they did.
+* What's their occupation
+
+##### Further Exploration for v2
+
+* What time of the day is best suited to engage casual riders on outdoor event?
+
+ 
